@@ -1,0 +1,90 @@
+!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Glimmers vs Triggers</title>
+  <script src="https://unpkg.com/hydra-synth"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: black;
+      font-family: monospace;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      cursor: pointer;
+      text-align: center;
+      transition: opacity 0.5s;
+    }
+    h1 { letter-spacing: 4px; text-transform: uppercase; }
+    p { color: #aaa; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <script>
+    const hydra = new Hydra({
+      detectAudio: true,
+      enableStreamCapture: false,
+    });
+
+    let tension = () => mouse.x / width;
+
+    osc(
+      () => 20 + (tension() * 60), 
+      () => 0.05 + (tension() * 0.2) + (a.fft[2]*tension()), 
+      () => 0.5 + (tension() * 5)
+    )
+    .rotate(
+      () => time * 0.1, 
+      () => a.fft[0] * 0.5 * (1 - tension()) 
+    )
+    .kaleid(() => 2 + (tension() * 10)) 
+    .modulate(
+      noise(
+        () => 2 + (tension() * 10), 
+        0.1 
+      ),
+      () => (tension() * 1.5) + (a.fft[3] * tension() * 5) 
+    )
+    .invert(() => (a.fft[2] > 0.4 && tension() > 0.8) ? 1 : 0)
+    .contrast(() => 1 + tension()) 
+    .brightness(() => 0.5 - (tension() * 0.2)) 
+    .pixelate(
+      () => 2000 - (tension() * 1950), 
+      () => 2000 - (tension() * 1950)
+    )
+    .blend(o0, () => 0.1 + (tension() * 0.8)) 
+    .out(o0);
+
+    // Gestione click per attivare audio
+    document.getElementById('overlay').addEventListener('click', function() {
+      a.show();
+      a.setBins(4);
+      a.settings[0].cutoff = 1;
+      
+      this.style.opacity = 0;
+      setTimeout(() => {
+        this.style.display = 'none';
+      }, 500);
+    });
+  </script>
+</body>
+</html>
