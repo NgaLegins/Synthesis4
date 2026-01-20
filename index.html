@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scream Reaction</title>
+  <title>Scream Reaction - Tuned</title>
   <script src="https://unpkg.com/hydra-synth"></script>
   <style>
     body {
@@ -37,12 +37,17 @@
 
     #scream-text {
       color: white;
-      font-size: 5vw; /* Dimensione reattiva */
-      font-weight: bold;
+      font-size: 5vw; 
+      font-weight: 900; /* Più grassetto per visibilità */
       text-transform: uppercase;
       text-align: center;
-      mix-blend-mode: exclusion;
-      transition: filter 0.05s, transform 0.05s, letter-spacing 0.05s;
+      
+      /* RIMOSSO mix-blend-mode per evitare che sparisca su sfondo bianco */
+      /* AGGIUNTO bordo nero per contrasto massimo */
+      text-shadow: 3px 3px 0px #000000; 
+      -webkit-text-stroke: 1px black;
+
+      transition: filter 0.1s, transform 0.1s, letter-spacing 0.1s;
       opacity: 0; 
     }
 
@@ -84,20 +89,22 @@
   </div>
 
   <script>
-    // Inizializza Hydra
     const hydra = new Hydra({
       detectAudio: true, 
       enableStreamCapture: false,
     });
 
-    // Variabile globale per il volume
-    let audioVol = 0;
+    // CONFIGURAZIONE SENSIBILITÀ
+    const THRESHOLD = 0.15; // Soglia minima: sotto questo volume, ignora tutto (Noise Gate)
+    const SENSITIVITY = 3.0; // Moltiplicatore: più basso è, più devi urlare forte
 
-    // Funzione "Tensione" basata sull'audio
-    // Moltiplichiamo per 5 per rendere sensibile anche a rumori medi
-    let tension = () => audioVol * 5; 
+    let audioVol = 0; // Volume elaborato
+    let rawAudio = 0; // Volume grezzo
 
-    // --- LOGICA HYDRA ---
+    // Funzione Tensione per Hydra
+    let tension = () => audioVol * SENSITIVITY; 
+
+    // --- HYDRA VISUALS ---
     osc(
       () => 20 + (tension() * 80), 
       () => 0.05 + (tension() * 0.2), 
@@ -112,50 +119,44 @@
       noise(() => 2 + (tension() * 10), 0.1),
       () => (tension() * 2) 
     )
-    // Inverte i colori se il volume supera una soglia
-    .invert(() => (audioVol > 0.3) ? 1 : 0)
-    .contrast(() => 1 + tension()) 
-    .brightness(() => 0.5 - (tension() * 0.1)) 
+    // Inversione colori (attiva solo con urla forti)
+    .invert(() => (audioVol > 0.5) ? 1 : 0)
+    .contrast(() => 1.2 + tension()) // Contrasto base aumentato leggermente
+    .brightness(() => 0.4 - (tension() * 0.1)) // Sfondo leggermente più scuro per far risaltare il testo
     
-    // PIXELATION EFFECT
-    // Quando tension è alto, il divisore aumenta, pixelate diminuisce -> blocchi grandi
+    // PIXELATION
     .pixelate(
       () => {
-        let val = 3000 / (1 + (tension() * 150));
-        return val < 10 ? 10 : val; // Limita per non rompere tutto
+        // Meno sensibile: l'effetto pixel parte più lentamente
+        let val = 3000 / (1 + (tension() * 100));
+        return val < 15 ? 15 : val; 
       },
       () => {
-        let val = 3000 / (1 + (tension() * 150));
-        return val < 10 ? 10 : val;
+        let val = 3000 / (1 + (tension() * 100));
+        return val < 15 ? 15 : val;
       }
     )
     .blend(o0, () => 0.1 + (tension() * 0.8)) 
     .out(o0);
     // --------------------
 
-    // --- LOGICA INTERFACCIA E AUDIO ---
     const overlay = document.getElementById('start-overlay');
     const screamText = document.getElementById('scream-text');
     const errorLog = document.getElementById('error-log');
 
     overlay.addEventListener('click', function() {
-      
-      // Tentiamo di avviare l'audio di Hydra
       try {
-        a.show(); // Mostra lo spettrogramma (necessario per inizializzare)
-        a.setBins(4); // Ottimizza i bin audio
+        a.show(); 
+        a.setBins(6); // Usa 6 bin per isolare meglio le frequenze
         
-        // Controlliamo se l'audio è partito davvero
         navigator.mediaDevices.getUserMedia({ audio: true, video: false })
           .then((stream) => {
-             // SUCCESSO
              console.log("Microfono attivo");
              startAnimation();
           })
           .catch((err) => {
-             // ERRORE
              console.error(err);
-             errorLog.innerHTML = "ERRORE MICROFONO: " + err.message + "<br>Assicurati di non aprire il file direttamente ma usare un Server.";
+             errorLog.innerHTML = "ERRORE MICROFONO: " + err.message;
           });
 
       } catch (e) {
@@ -172,34 +173,43 @@
       }, 500);
     }
 
-    // Loop per animare il testo HTML
     function updateTextLoop() {
-      // Hydra mette i dati audio in a.fft[]
-      // a.fft[0] sono i bassi, a.fft[1] medi, etc.
       if (typeof a !== 'undefined' && a.fft) {
-        // Smoothing: media tra valore attuale e precedente per fluidità
-        let raw = a.fft[0]; 
-        audioVol = audioVol * 0.8 + raw * 0.2; // Lerp
+        // Prendi il valore grezzo (frequenze basse/voce)
+        let currentRaw = a.fft[0]; 
+
+        // NOISE GATE: Se il volume è basso (respiro, rumore fondo), consideralo zero
+        if (currentRaw < THRESHOLD) {
+            currentRaw = 0;
+        } else {
+            // Rimuovi l'offset della soglia per rendere la transizione fluida
+            currentRaw = (currentRaw - THRESHOLD) * 2; 
+        }
+
+        // Smoothing (rende l'animazione meno scattosa)
+        audioVol = audioVol * 0.9 + currentRaw * 0.1;
       }
 
-      // Applicazione effetti CSS al testo
-      // Blur e Spaziatura basati sul volume
-      let intensity = audioVol * 4; // Amplifica l'effetto visivo
-      
-      // Limita intensity
+      // Intensità effetto visivo testo
+      let intensity = audioVol * 3; 
       if(intensity > 1) intensity = 1;
 
-      const blurPx = intensity * 15;
-      const letterSp = intensity * 40; 
+      // Blur ridotto drasticamente per leggibilità (Max 6px invece di 20px)
+      const blurPx = intensity * 6; 
+      // Spaziatura lettere ridotta leggermente
+      const letterSp = intensity * 30; 
       
-      // Se urli, il testo si "rompe"
       screamText.style.filter = `blur(${blurPx}px)`;
       screamText.style.letterSpacing = `${letterSp}px`;
       
-      // Opzionale: un po' di tremolio
-      const shakeX = (Math.random() - 0.5) * intensity * 20;
-      const shakeY = (Math.random() - 0.5) * intensity * 20;
-      screamText.style.transform = `translate(${shakeX}px, ${shakeY}px) scale(${1 + intensity * 0.2})`;
+      // Tremolio leggero
+      const shakeX = (Math.random() - 0.5) * intensity * 10;
+      const shakeY = (Math.random() - 0.5) * intensity * 10;
+      
+      // Scale leggermente aumentato
+      const scaleVal = 1 + (intensity * 0.3);
+
+      screamText.style.transform = `translate(${shakeX}px, ${shakeY}px) scale(${scaleVal})`;
 
       requestAnimationFrame(updateTextLoop);
     }
